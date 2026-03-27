@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-LABEL maintainer="hanka003"
+LABEL maintainer="mochidroppot <mochidroppot@gmail.com>"
 
 # ------------------------------
 # Build-time and runtime settings
@@ -23,18 +23,10 @@ ENV MAMBA_USER=${MAMBA_USER} \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     MAMBA_ROOT_PREFIX=/opt/conda \
     CONDA_DEFAULT_ENV=pyenv \
-    HF_HOME=/opt/app/hf_home \
-    HF_HUB_CACHE=/opt/app/hf_home/hub \
-    HF_ASSETS_CACHE=/opt/app/hf_home/assets \
-    HF_XET_CACHE=/opt/app/hf_home/xet \
-    TRANSFORMERS_CACHE=/opt/app/hf_home/transformers \
-    COMFYUI_APP_BASE=/opt/app/ComfyUI \
+    HF_HOME=/storage/sd-suite/hf_cache \
     COMFYUI_AUTO_UPDATE=0 \
     COMFYUI_CUSTOM_NODES_AUTO_UPDATE=0 \
-    COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS=0 \
-    COMFYUI_PORT=8189 \
-    COMFYUI_LISTEN_HOST=0.0.0.0 \
-    COMFYUI_EXTRA_ARGS="--disable-auto-launch --preview-method none --force-fp16 --use-split-cross-attention"
+    COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS=0
 
 # ------------------------------
 # Base packages
@@ -50,7 +42,7 @@ RUN set -eux; \
     apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout="30" install -y --no-install-recommends \
       ca-certificates curl wget git git-lfs nano vim zip unzip tzdata build-essential \
       libgl1-mesa-glx libglib2.0-0 openssh-client bzip2 pkg-config iproute2 tini ffmpeg \
-      aria2 rsync jq supervisor && \
+      aria2 rsync jq && \
     rm -rf /var/lib/apt/lists/*
 
 # ------------------------------
@@ -93,6 +85,7 @@ RUN set -eux; \
 
 # ------------------------------
 # Custom nodes requested by user
+# clone only; dependency install is deferred until after startup
 # ------------------------------
 RUN set -eux; \
     cd /opt/app/ComfyUI/custom_nodes && \
@@ -135,64 +128,25 @@ RUN set -eux; \
 RUN set -eux; \
     mkdir -p /opt/app/jlab_extensions && \
     curl -fsSL -o /opt/app/jlab_extensions/jupyterlab_comfyui_cockpit-0.1.0-py3-none-any.whl \
-    https://github.com/mochidroppot/jupyterlab-comfyui-cockpit/releases/download/v0.1.0/jupyterlab_comfyui_cockpit-0.1.0-py3-none-any.whl
-
-# ------------------------------
-# App directories
-# ------------------------------
-RUN set -eux; \
-    mkdir -p \
-      /opt/app/hf_home \
-      /opt/app/ComfyUI/input \
-      /opt/app/ComfyUI/output \
-      /opt/app/ComfyUI/temp \
-      /opt/app/ComfyUI/user \
-      /opt/app/ComfyUI/models/checkpoints \
-      /opt/app/ComfyUI/models/clip \
-      /opt/app/ComfyUI/models/clip_vision \
-      /opt/app/ComfyUI/models/configs \
-      /opt/app/ComfyUI/models/controlnet \
-      /opt/app/ComfyUI/models/diffusers \
-      /opt/app/ComfyUI/models/diffusion_models \
-      /opt/app/ComfyUI/models/embeddings \
-      /opt/app/ComfyUI/models/gligen \
-      /opt/app/ComfyUI/models/hypernetworks \
-      /opt/app/ComfyUI/models/loras \
-      /opt/app/ComfyUI/models/style_models \
-      /opt/app/ComfyUI/models/text_encoders \
-      /opt/app/ComfyUI/models/unet \
-      /opt/app/ComfyUI/models/upscale_models \
-      /opt/app/ComfyUI/models/vae \
-      /workspace \
-      /workspace/data \
-      /workspace/notebooks \
-      /notebooks \
-      /storage
+      https://github.com/mochidroppot/jupyterlab-comfyui-cockpit/releases/download/v0.1.0/jupyterlab_comfyui_cockpit-0.1.0-py3-none-any.whl
 
 # ------------------------------
 # Non-root user
 # ------------------------------
 RUN set -eux; \
     useradd -m -s /bin/bash ${MAMBA_USER}; \
+    mkdir -p /workspace /workspace/data /workspace/notebooks; \
+    mkdir -p /storage/sd-suite/comfyui /storage/sd-suite/hf_cache; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /home/${MAMBA_USER}; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} ${MAMBA_ROOT_PREFIX}; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /opt/app; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /workspace; \
-    chown -R ${MAMBA_USER}:${MAMBA_USER} /notebooks; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /storage
 
 USER ${MAMBA_USER}
 RUN git config --global --add safe.directory /opt/app/ComfyUI
-USER root
 
-# ------------------------------
-# Notebook-side convenience symlink
-# ------------------------------
-RUN set -eux; \
-    mkdir -p /notebooks/ComfyUI && \
-    rm -rf /notebooks/ComfyUI/models && \
-    ln -s /opt/app/ComfyUI/models /notebooks/ComfyUI/models && \
-    chown -h ${MAMBA_USER}:${MAMBA_USER} /notebooks/ComfyUI/models
+USER root
 
 # ------------------------------
 # Healthcheck
@@ -215,11 +169,10 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/install_custom_node_dep
 # ------------------------------
 # Install local package
 # ------------------------------
-COPY pyproject.toml /tmp/paperspace-custom/pyproject.toml
-COPY src /tmp/paperspace-custom/src
-
-RUN micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install /tmp/paperspace-custom && \
-    rm -rf /tmp/paperspace-custom
+COPY pyproject.toml /tmp/paperspace-stable-diffusion-suite/pyproject.toml
+COPY src /tmp/paperspace-stable-diffusion-suite/src
+RUN micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install /tmp/paperspace-stable-diffusion-suite && \
+    rm -rf /tmp/paperspace-stable-diffusion-suite
 
 # ------------------------------
 # Ports
@@ -232,4 +185,5 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 USER ${MAMBA_USER}
 ENV PATH=${MAMBA_ROOT_PREFIX}/envs/pyenv/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}
 
+# Default command (JupyterLab)
 CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--ServerApp.token="]
