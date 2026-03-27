@@ -103,14 +103,17 @@ fi
 # ----------------------------------------
 # Create notebooks-visible structure
 # only selected items are visible from /notebooks
+# output is visible via /notebooks/ComfyUI/output
 # ----------------------------------------
 echo
 echo "=== Creating notebooks visible structure ==="
 
 ln -sfn /opt/app/ComfyUI /notebooks/ComfyUI
-ln -sfn "${COMFYUI_APP_BASE}/output" /notebooks/output
 ln -sfn "${COMFYUI_APP_BASE}/input" /notebooks/input
 ln -sfn "${COMFYUI_APP_BASE}/custom_nodes" /notebooks/custom_nodes
+
+# /notebooks/output は作らない
+rm -rf /notebooks/output 2>/dev/null || true
 
 # ----------------------------------------
 # Optional ComfyUI update
