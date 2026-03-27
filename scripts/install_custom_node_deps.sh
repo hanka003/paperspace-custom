@@ -27,3 +27,5 @@ find "$CUSTOM_NODES_DIR" -maxdepth 2 -name pyproject.toml -print0 | \
 
 echo
 echo "=== Install custom node dependencies: done ==="
+echo "Run this after Jupyter starts:"
+echo "  /usr/local/bin/install_custom_node_deps.sh"
