@@ -83,7 +83,6 @@ mkdir -p "${STORAGE_COMFYUI_DIR}/input" \
          "${STORAGE_COMFYUI_DIR}/output" \
          "${STORAGE_COMFYUI_DIR}/custom_nodes" \
          "${STORAGE_COMFYUI_DIR}/user" \
-         "${STORAGE_COMFYUI_DIR}/models" \
          "${JLAB_EXTENSIONS_DIR}" \
          "${HF_HOME}" \
          /workspace \
@@ -92,7 +91,8 @@ mkdir -p "${STORAGE_COMFYUI_DIR}/input" \
 
 chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_BASE}" /workspace || true
 
-for d in input output custom_nodes user models; do
+# models はストレージに逃がさない
+for d in input output custom_nodes user; do
   link_dir "${COMFYUI_APP_BASE}/${d}" "${STORAGE_COMFYUI_DIR}/${d}"
 done
 
@@ -102,7 +102,6 @@ fi
 
 # ----------------------------------------
 # Create notebooks-visible structure
-# only selected items are visible from /notebooks
 # output is visible via /notebooks/ComfyUI/output
 # ----------------------------------------
 echo
