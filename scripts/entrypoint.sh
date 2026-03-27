@@ -108,7 +108,7 @@ if [ -d /opt/app/jlab_extensions ]; then
 fi
 
 # ----------------------------------------
-# Optional ComfyUI app update
+# Optional ComfyUI update
 # ----------------------------------------
 echo
 echo "=== Checking ComfyUI app update policy ==="
@@ -123,7 +123,6 @@ run_as_mambauser "git config --global --add safe.directory '${COMFYUI_APP_BASE}'
 
 # ----------------------------------------
 # Ensure requested custom nodes exist
-# 軽量化のため、依存インストールはここでは行わない
 # ----------------------------------------
 echo
 echo "=== Clone / Update custom nodes ==="
@@ -148,22 +147,25 @@ done
 chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_COMFYUI_DIR}" || true
 
 # ----------------------------------------
-# 重要:
-# 起動優先のため、以下は startup では実行しない
-# - custom node dependency install
-# - JupyterLab extension install
-# 必要なら Jupyter 起動後に手動で実行
+# Skip heavy startup tasks
 # ----------------------------------------
 echo
 echo "=== Skip custom node dependency install at startup ==="
 echo "=== Skip JupyterLab extension install at startup ==="
 
 # ----------------------------------------
-# Start supervisord (ComfyUI)
+# Start supervisord
 # ----------------------------------------
 echo
 echo "=== Starting supervisord ==="
-/usr/bin/supervisord -c /etc/supervisord.conf
+
+if ! command -v supervisord >/dev/null 2>&1; then
+  echo "ERROR: supervisord not found in PATH"
+  echo "PATH=$PATH"
+  exit 1
+fi
+
+supervisord -c /etc/supervisord.conf
 
 echo
 echo "=== Runtime info ==="
