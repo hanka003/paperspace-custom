@@ -15,11 +15,10 @@ HF_HOME="${HF_HOME:-${STORAGE_BASE}/hf_cache}"
 
 COMFYUI_PORT="${COMFYUI_PORT:-8189}"
 COMFYUI_LISTEN_HOST="${COMFYUI_LISTEN_HOST:-0.0.0.0}"
-COMFYUI_EXTRA_ARGS="${COMFYUI_EXTRA_ARGS:---disable-auto-launch --preview-method auto}"
+COMFYUI_EXTRA_ARGS="${COMFYUI_EXTRA_ARGS:---disable-auto-launch --preview-method none --force-fp16 --use-split-cross-attention}"
 
 COMFYUI_AUTO_UPDATE="${COMFYUI_AUTO_UPDATE:-0}"
 COMFYUI_CUSTOM_NODES_AUTO_UPDATE="${COMFYUI_CUSTOM_NODES_AUTO_UPDATE:-0}"
-COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS="${COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS:-1}"
 
 export PATH="${MAMBA_ROOT_PREFIX}/envs/pyenv/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}"
 export HF_HOME
@@ -46,7 +45,6 @@ link_dir() {
   fi
 
   if [ -d "$src" ] && [ ! -L "$src" ]; then
-    # 中身があれば退避
     if [ -n "$(ls -A "$src" 2>/dev/null || true)" ] && [ -z "$(ls -A "$dst" 2>/dev/null || true)" ]; then
       echo "Syncing existing contents: $src -> $dst"
       rsync -a "$src"/ "$dst"/ || true
@@ -82,37 +80,6 @@ clone_or_update_repo() {
   fi
 }
 
-install_custom_node_deps() {
-  echo
-  echo "=== Installing custom node dependencies ==="
-
-  local req
-  while IFS= read -r -d '' req; do
-    echo "[requirements] $req"
-    pip install -r "$req" || true
-  done < <(find "${COMFYUI_APP_BASE}/custom_nodes" -maxdepth 2 -name requirements.txt -print0)
-
-  local pyproject
-  while IFS= read -r -d '' pyproject; do
-    local proj_dir
-    proj_dir="$(dirname "$pyproject")"
-    echo "[pyproject] $proj_dir"
-    (
-      cd "$proj_dir"
-      pip install .
-    ) || true
-  done < <(find "${COMFYUI_APP_BASE}/custom_nodes" -maxdepth 2 -name pyproject.toml -print0)
-}
-
-install_jlab_extension_if_present() {
-  local wheel="/opt/app/jlab_extensions/jupyterlab_comfyui_cockpit-0.1.0-py3-none-any.whl"
-  if [ -f "$wheel" ]; then
-    echo
-    echo "=== Installing JupyterLab extension wheel ==="
-    pip install "$wheel" || true
-  fi
-}
-
 # ----------------------------------------
 # Prepare persistent storage
 # ----------------------------------------
@@ -132,18 +99,16 @@ mkdir -p "${STORAGE_COMFYUI_DIR}/input" \
 
 chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_BASE}" /workspace || true
 
-# link comfyui subdirs to persistent storage
 for d in input output custom_nodes user models; do
   link_dir "${COMFYUI_APP_BASE}/${d}" "${STORAGE_COMFYUI_DIR}/${d}"
 done
 
-# optional: persist downloaded jupyter extension wheels
 if [ -d /opt/app/jlab_extensions ]; then
   rsync -a /opt/app/jlab_extensions/ "${JLAB_EXTENSIONS_DIR}/" || true
 fi
 
 # ----------------------------------------
-# ComfyUI repo update (optional)
+# Optional ComfyUI app update
 # ----------------------------------------
 echo
 echo "=== Checking ComfyUI app update policy ==="
@@ -154,11 +119,11 @@ else
   echo "Skip update: COMFYUI_AUTO_UPDATE=${COMFYUI_AUTO_UPDATE}"
 fi
 
-# safe.directory
 run_as_mambauser "git config --global --add safe.directory '${COMFYUI_APP_BASE}'" || true
 
 # ----------------------------------------
-# Ensure requested custom nodes exist in persistent custom_nodes
+# Ensure requested custom nodes exist
+# 軽量化のため、依存インストールはここでは行わない
 # ----------------------------------------
 echo
 echo "=== Clone / Update custom nodes ==="
@@ -180,23 +145,18 @@ for repo in "${CUSTOM_NODE_REPOS[@]}"; do
   clone_or_update_repo "$repo" "${COMFYUI_APP_BASE}/custom_nodes"
 done
 
-# keep permissions sane
 chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_COMFYUI_DIR}" || true
 
 # ----------------------------------------
-# Install custom node dependencies (optional)
+# 重要:
+# 起動優先のため、以下は startup では実行しない
+# - custom node dependency install
+# - JupyterLab extension install
+# 必要なら Jupyter 起動後に手動で実行
 # ----------------------------------------
-if [ "$COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS" = "1" ]; then
-  install_custom_node_deps
-else
-  echo
-  echo "=== Skip custom node dependency install: COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS=${COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS} ==="
-fi
-
-# ----------------------------------------
-# Install Jupyter extension if bundled
-# ----------------------------------------
-install_jlab_extension_if_present
+echo
+echo "=== Skip custom node dependency install at startup ==="
+echo "=== Skip JupyterLab extension install at startup ==="
 
 # ----------------------------------------
 # Start supervisord (ComfyUI)
@@ -205,7 +165,6 @@ echo
 echo "=== Starting supervisord ==="
 /usr/bin/supervisord -c /etc/supervisord.conf
 
-# log helpful info
 echo
 echo "=== Runtime info ==="
 echo "COMFYUI_APP_BASE=${COMFYUI_APP_BASE}"
