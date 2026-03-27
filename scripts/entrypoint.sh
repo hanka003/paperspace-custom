@@ -108,6 +108,18 @@ if [ -d /opt/app/jlab_extensions ]; then
 fi
 
 # ----------------------------------------
+# Create notebooks-visible structure
+# only selected items should be visible from /notebooks
+# ----------------------------------------
+echo
+echo "=== Creating notebooks visible structure ==="
+
+ln -sfn /opt/app/ComfyUI /notebooks/ComfyUI
+ln -sfn "${COMFYUI_APP_BASE}/output" /notebooks/output
+ln -sfn "${COMFYUI_APP_BASE}/input" /notebooks/input
+ln -sfn "${COMFYUI_APP_BASE}/custom_nodes" /notebooks/custom_nodes
+
+# ----------------------------------------
 # Optional ComfyUI update
 # ----------------------------------------
 echo
