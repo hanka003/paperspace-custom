@@ -1,9 +1,6 @@
 # -----------------------------------------------------------------------------
 # Image for Paperspace Notebook (GPU) running JupyterLab + ComfyUI
 # Customized for personal/private use on Paperspace
-# - Base: NVIDIA CUDA 12.4 runtime (Ubuntu 22.04) with cuDNN
-# - Package manager: micromamba (conda-compatible)
-# - Default: launches JupyterLab on port 8888
 # -----------------------------------------------------------------------------
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
@@ -14,7 +11,6 @@ LABEL maintainer="mochidroppot <mochidroppot@gmail.com>"
 # ------------------------------
 ARG PYTHON_VERSION=3.11
 ARG MAMBA_USER=mambauser
-ARG JUPYTER_TOKEN=YOUR_LONG_RANDOM_TOKEN
 
 ENV MAMBA_USER=${MAMBA_USER} \
     DEBIAN_FRONTEND=noninteractive \
@@ -70,7 +66,7 @@ RUN set -eux; \
     echo "export PATH=${MAMBA_ROOT_PREFIX}/bin:\$PATH" > /etc/profile.d/mamba.sh
 
 # ------------------------------
-# Python environment (isolated prefix)
+# Python environment
 # ------------------------------
 RUN set -eux; \
     micromamba create -y -p ${MAMBA_ROOT_PREFIX}/envs/pyenv python=${PYTHON_VERSION}; \
@@ -92,30 +88,24 @@ RUN set -eux; \
 
 # ------------------------------
 # Custom nodes requested by user
+# clone only; dependency install is deferred until after startup
 # ------------------------------
 RUN set -eux; \
     cd /opt/app/ComfyUI/custom_nodes && \
-    \
-    # GGUF
     git clone https://github.com/city96/ComfyUI-GGUF.git || true && \
-    \
-    # Basic / utility nodes
     git clone https://github.com/DoctorDiffusion/ComfyUI-MediaMixer.git || true && \
     git clone https://github.com/pythongosssss/ComfyUI-Custom-Scripts.git || true && \
     git clone https://github.com/rgthree/rgthree-comfy.git || true && \
     git clone https://github.com/jamesWalker55/comfyui-various.git || true && \
     git clone https://github.com/Smirnov75/ComfyUI-mxToolkit.git || true && \
-    \
-    # Video / workflow related
     git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git || true && \
     git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git || true && \
-    \
-    # Additional nodes from your history
     git clone https://github.com/kijai/ComfyUI-KJNodes.git || true && \
     git clone https://github.com/WASasquatch/was-node-suite-comfyui.git || true
 
 # ------------------------------
 # PyTorch + core libs + ComfyUI requirements
+# keep only the base environment in image
 # ------------------------------
 RUN set -eux; \
     export PIP_NO_CACHE_DIR=0; \
@@ -137,20 +127,8 @@ RUN set -eux; \
     micromamba clean -a -y
 
 # ------------------------------
-# Install dependencies for all custom nodes
-# - requirements.txt
-# - pyproject.toml
-# ------------------------------
-RUN set -eux; \
-    export PIP_NO_CACHE_DIR=0; \
-    find /opt/app/ComfyUI/custom_nodes -maxdepth 2 -name requirements.txt -print0 | \
-      xargs -0 -r -I {} micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install -r "{}" || true; \
-    find /opt/app/ComfyUI/custom_nodes -maxdepth 2 -name pyproject.toml -print0 | \
-      xargs -0 -r -I {} sh -c 'cd "$(dirname "{}")" && micromamba run -p '"${MAMBA_ROOT_PREFIX}"'/envs/pyenv pip install .' || true; \
-    micromamba clean -a -y
-
-# ------------------------------
-# Install extensions (jupyterlab-comfyui-cockpit)
+# Install extensions wheel file only
+# actual pip install is deferred until after startup if desired
 # ------------------------------
 RUN set -eux; \
     mkdir -p /opt/app/jlab_extensions && \
@@ -158,7 +136,7 @@ RUN set -eux; \
       https://github.com/mochidroppot/jupyterlab-comfyui-cockpit/releases/download/v0.1.0/jupyterlab_comfyui_cockpit-0.1.0-py3-none-any.whl
 
 # ------------------------------
-# Non-root user for interactive sessions
+# Non-root user
 # ------------------------------
 RUN set -eux; \
     useradd -m -s /bin/bash ${MAMBA_USER}; \
@@ -170,36 +148,40 @@ RUN set -eux; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /workspace; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /storage
 
-# Configure git for the mambauser
 USER ${MAMBA_USER}
 RUN git config --global --add safe.directory /opt/app/ComfyUI
 
-# Switch back to root for workspace setup
 USER root
 
 # ------------------------------
-# Healthcheck (Jupyter 8888)
+# Healthcheck
 # ------------------------------
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
   CMD bash -lc 'ss -ltn | grep -E ":8888" >/dev/null || exit 1'
 
 # ------------------------------
-# Entrypoint via Tini
+# Entrypoint / runtime scripts
 # ------------------------------
 WORKDIR /notebooks
 
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY scripts/install_custom_node_deps.sh /usr/local/bin/install_custom_node_deps.sh
 COPY config/supervisord.conf /etc/supervisord.conf
-RUN chmod +x /usr/local/bin/entrypoint.sh && \
-    chown ${MAMBA_USER}:${MAMBA_USER} /usr/local/bin/entrypoint.sh
 
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/install_custom_node_deps.sh && \
+    chown ${MAMBA_USER}:${MAMBA_USER} /usr/local/bin/entrypoint.sh /usr/local/bin/install_custom_node_deps.sh
+
+# ------------------------------
 # Install local package
+# ------------------------------
 COPY pyproject.toml /tmp/paperspace-stable-diffusion-suite/pyproject.toml
 COPY src /tmp/paperspace-stable-diffusion-suite/src
 RUN micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install /tmp/paperspace-stable-diffusion-suite && \
     rm -rf /tmp/paperspace-stable-diffusion-suite
 
-# Expose ports
+# ------------------------------
+# Ports
+# ------------------------------
 EXPOSE 8888
 EXPOSE 8189
 
@@ -209,4 +191,4 @@ USER ${MAMBA_USER}
 ENV PATH=${MAMBA_ROOT_PREFIX}/envs/pyenv/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}
 
 # Default command (JupyterLab)
-CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser"]
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--ServerApp.token="]
