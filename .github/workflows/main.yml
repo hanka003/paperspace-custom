@@ -1,8 +1,10 @@
 name: Update container
 
 on:
+  push:
+    branches: [ "main" ]
   release:
-    types: [published, prereleased]
+    types: [published] # Releaseを公開したときに動くようにする
 
 jobs:
   docker:
