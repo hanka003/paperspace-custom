@@ -33,7 +33,7 @@ ENV MAMBA_USER=${MAMBA_USER} \
     COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS=1 \
     COMFYUI_PORT=8189 \
     COMFYUI_LISTEN_HOST=0.0.0.0 \
-    COMFYUI_EXTRA_ARGS="--disable-auto-launch --preview-method auto"
+    COMFYUI_EXTRA_ARGS="--disable-auto-launch --preview-method none --force-fp16 --use-split-cross-attention"
 
 # ------------------------------
 # Base packages
