@@ -104,8 +104,7 @@ RUN set -eux; \
     git clone https://github.com/WASasquatch/was-node-suite-comfyui.git || true
 
 # ------------------------------
-# PyTorch + core libs + ComfyUI requirements
-# keep only the base environment in image
+# PyTorch + core libs + base ComfyUI requirements only
 # ------------------------------
 RUN set -eux; \
     export PIP_NO_CACHE_DIR=0; \
@@ -127,8 +126,7 @@ RUN set -eux; \
     micromamba clean -a -y
 
 # ------------------------------
-# Install extensions wheel file only
-# actual pip install is deferred until after startup if desired
+# Download extension wheel only
 # ------------------------------
 RUN set -eux; \
     mkdir -p /opt/app/jlab_extensions && \
