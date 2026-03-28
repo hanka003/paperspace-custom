@@ -1,33 +1,41 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-echo "=== paperspace-stable-diffusion-suite: entrypoint start ==="
+echo "=== paperspace-custom: entrypoint start ==="
 
 # ----------------------------------------
 # Basic paths / env
 # ----------------------------------------
 MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-/opt/conda}"
+
+# テンプレート元（イメージ内）
 COMFYUI_TEMPLATE_BASE="${COMFYUI_TEMPLATE_BASE:-/opt/app/ComfyUI}"
+
+# 実行実体（notebooks 側）
 COMFYUI_APP_BASE="${COMFYUI_APP_BASE:-/notebooks/ComfyUI}"
 
+# 永続ストレージ
 STORAGE_BASE="${STORAGE_BASE:-/storage/sd-suite}"
 STORAGE_COMFYUI_DIR="${STORAGE_COMFYUI_DIR:-${STORAGE_BASE}/comfyui}"
 JLAB_EXTENSIONS_DIR="${JLAB_EXTENSIONS_DIR:-${STORAGE_BASE}/jlab_extensions}"
 HF_HOME="${HF_HOME:-${STORAGE_BASE}/hf_cache}"
 
+# models は opt 側に固定
 COMFYUI_MODELS_BASE="${COMFYUI_MODELS_BASE:-/opt/app/ComfyUI/models}"
+
 COMFYUI_PORT="${COMFYUI_PORT:-8189}"
 COMFYUI_LISTEN_HOST="${COMFYUI_LISTEN_HOST:-0.0.0.0}"
-COMFYUI_EXTRA_ARGS="${COMFYUI_EXTRA_ARGS:---disable-auto-launch --preview-method none --force-fp16 --use-split-cross-attention}"
+COMFYUI_EXTRA_ARGS="${COMFYUI_EXTRA_ARGS:---disable-auto-launch}"
 COMFYUI_AUTO_UPDATE="${COMFYUI_AUTO_UPDATE:-0}"
 COMFYUI_CUSTOM_NODES_AUTO_UPDATE="${COMFYUI_CUSTOM_NODES_AUTO_UPDATE:-0}"
 
 export PATH="${MAMBA_ROOT_PREFIX}/envs/pyenv/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}"
 export HF_HOME
+export COMFYUI_APP_BASE
+export COMFYUI_MODELS_BASE
 export COMFYUI_PORT
 export COMFYUI_LISTEN_HOST
 export COMFYUI_EXTRA_ARGS
-export COMFYUI_APP_BASE
 
 # ----------------------------------------
 # Helper functions
@@ -96,46 +104,84 @@ mkdir -p \
   /workspace \
   /workspace/data \
   /workspace/notebooks \
+  /notebooks \
   "${COMFYUI_MODELS_BASE}"
 
-chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_BASE}" /workspace /notebooks || true
+# models 以下を全部 opt 側に用意
+mkdir -p \
+  "${COMFYUI_MODELS_BASE}/checkpoints" \
+  "${COMFYUI_MODELS_BASE}/clip" \
+  "${COMFYUI_MODELS_BASE}/clip_vision" \
+  "${COMFYUI_MODELS_BASE}/configs" \
+  "${COMFYUI_MODELS_BASE}/controlnet" \
+  "${COMFYUI_MODELS_BASE}/diffusers" \
+  "${COMFYUI_MODELS_BASE}/diffusion_models" \
+  "${COMFYUI_MODELS_BASE}/embeddings" \
+  "${COMFYUI_MODELS_BASE}/gligen" \
+  "${COMFYUI_MODELS_BASE}/hypernetworks" \
+  "${COMFYUI_MODELS_BASE}/ipadapter" \
+  "${COMFYUI_MODELS_BASE}/loras" \
+  "${COMFYUI_MODELS_BASE}/photomaker" \
+  "${COMFYUI_MODELS_BASE}/style_models" \
+  "${COMFYUI_MODELS_BASE}/unet" \
+  "${COMFYUI_MODELS_BASE}/upscale_models" \
+  "${COMFYUI_MODELS_BASE}/vae" \
+  "${COMFYUI_MODELS_BASE}/vae_approx"
+
+chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" \
+  "${STORAGE_BASE}" /workspace /notebooks "${COMFYUI_MODELS_BASE}" || true
 
 # ----------------------------------------
-# Seed /notebooks/ComfyUI from template once
+# Build real /notebooks/ComfyUI (NOT symlink)
 # ----------------------------------------
 echo
-echo "=== Preparing runtime ComfyUI at /notebooks/ComfyUI ==="
+echo "=== Preparing real runtime tree at /notebooks/ComfyUI ==="
+
+# 既存の /notebooks/ComfyUI が symlink なら消す
+if [ -L "${COMFYUI_APP_BASE}" ]; then
+  rm -f "${COMFYUI_APP_BASE}"
+fi
 
 mkdir -p "${COMFYUI_APP_BASE}"
 
+# 初回だけ /opt/app/ComfyUI から本体をコピー
 if [ ! -f "${COMFYUI_APP_BASE}/main.py" ]; then
   echo "Initial sync: ${COMFYUI_TEMPLATE_BASE} -> ${COMFYUI_APP_BASE}"
   rsync -a \
     --exclude models \
     --exclude input \
     --exclude output \
+    --exclude custom_nodes \
     --exclude user \
     "${COMFYUI_TEMPLATE_BASE}/" "${COMFYUI_APP_BASE}/"
 fi
 
+# notebooks 側に workflow 保存先を確保
 mkdir -p \
   "${COMFYUI_APP_BASE}/user/default/workflows" \
   "${COMFYUI_APP_BASE}/user/default"
 
 # ----------------------------------------
-# Link selected runtime dirs
+# Link runtime directories
 # ----------------------------------------
 echo
 echo "=== Linking runtime directories ==="
 
+# notebooks 実体側から見せる
 link_dir "${COMFYUI_APP_BASE}/input"        "${STORAGE_COMFYUI_DIR}/input"
 link_dir "${COMFYUI_APP_BASE}/output"       "${STORAGE_COMFYUI_DIR}/output"
 link_dir "${COMFYUI_APP_BASE}/custom_nodes" "${STORAGE_COMFYUI_DIR}/custom_nodes"
+
+# models 以下は全部 /opt/app/ComfyUI/models に保存
 link_dir "${COMFYUI_APP_BASE}/models"       "${COMFYUI_MODELS_BASE}"
 
-# user は notebooks 側に残す
+# user は notebooks 側に残す（workflow を notebooks に保存したいので）
 mkdir -p "${COMFYUI_APP_BASE}/user/default/workflows"
-chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${COMFYUI_APP_BASE}/user" || true
+
+# 補助リンク
+ln -sfn "${COMFYUI_APP_BASE}/input" /notebooks/input
+ln -sfn "${COMFYUI_APP_BASE}/custom_nodes" /notebooks/custom_nodes
+rm -rf /notebooks/output 2>/dev/null || true
 
 if [ -d /opt/app/jlab_extensions ]; then
   rsync -a /opt/app/jlab_extensions/ "${JLAB_EXTENSIONS_DIR}/" || true
@@ -164,22 +210,15 @@ echo "=== Clone / Update custom nodes ==="
 
 CUSTOM_NODE_REPOS=(
   "https://github.com/city96/ComfyUI-GGUF.git"
-  "https://github.com/DoctorDiffusion/ComfyUI-MediaMixer.git"
-  "https://github.com/pythongosssss/ComfyUI-Custom-Scripts.git"
-  "https://github.com/rgthree/rgthree-comfy.git"
-  "https://github.com/jamesWalker55/comfyui-various.git"
-  "https://github.com/Smirnov75/ComfyUI-mxToolkit.git"
-  "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
-  "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git"
   "https://github.com/kijai/ComfyUI-KJNodes.git"
-  "https://github.com/WASasquatch/was-node-suite-comfyui.git"
 )
 
 for repo in "${CUSTOM_NODE_REPOS[@]}"; do
   clone_or_update_repo "$repo" "${COMFYUI_APP_BASE}/custom_nodes"
 done
 
-chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_COMFYUI_DIR}" "${COMFYUI_APP_BASE}" || true
+chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" \
+  "${STORAGE_COMFYUI_DIR}" "${COMFYUI_APP_BASE}" "${COMFYUI_MODELS_BASE}" || true
 
 # ----------------------------------------
 # Skip heavy startup tasks
@@ -207,11 +246,9 @@ echo "=== Runtime info ==="
 echo "COMFYUI_TEMPLATE_BASE=${COMFYUI_TEMPLATE_BASE}"
 echo "COMFYUI_APP_BASE=${COMFYUI_APP_BASE}"
 echo "COMFYUI_MODELS_BASE=${COMFYUI_MODELS_BASE}"
-echo "COMFYUI_LISTEN_HOST=${COMFYUI_LISTEN_HOST}"
-echo "COMFYUI_PORT=${COMFYUI_PORT}"
-echo "COMFYUI_EXTRA_ARGS=${COMFYUI_EXTRA_ARGS}"
 echo "HF_HOME=${HF_HOME}"
 echo "Workflow dir=${COMFYUI_APP_BASE}/user/default/workflows"
+echo "Checkpoints dir=${COMFYUI_MODELS_BASE}/checkpoints"
 echo "Jupyter command: $*"
 
 # ----------------------------------------
