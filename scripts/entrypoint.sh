@@ -7,17 +7,27 @@ echo "=== paperspace-stable-diffusion-suite: entrypoint start ==="
 # Basic paths / env
 # ----------------------------------------
 MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-/opt/conda}"
-COMFYUI_APP_BASE="${COMFYUI_APP_BASE:-/opt/app/ComfyUI}"
+COMFYUI_TEMPLATE_BASE="${COMFYUI_TEMPLATE_BASE:-/opt/app/ComfyUI}"
+COMFYUI_APP_BASE="${COMFYUI_APP_BASE:-/notebooks/ComfyUI}"
+
 STORAGE_BASE="${STORAGE_BASE:-/storage/sd-suite}"
 STORAGE_COMFYUI_DIR="${STORAGE_COMFYUI_DIR:-${STORAGE_BASE}/comfyui}"
 JLAB_EXTENSIONS_DIR="${JLAB_EXTENSIONS_DIR:-${STORAGE_BASE}/jlab_extensions}"
 HF_HOME="${HF_HOME:-${STORAGE_BASE}/hf_cache}"
 
+COMFYUI_MODELS_BASE="${COMFYUI_MODELS_BASE:-/opt/app/ComfyUI/models}"
+COMFYUI_PORT="${COMFYUI_PORT:-8189}"
+COMFYUI_LISTEN_HOST="${COMFYUI_LISTEN_HOST:-0.0.0.0}"
+COMFYUI_EXTRA_ARGS="${COMFYUI_EXTRA_ARGS:---disable-auto-launch --preview-method none --force-fp16 --use-split-cross-attention}"
 COMFYUI_AUTO_UPDATE="${COMFYUI_AUTO_UPDATE:-0}"
 COMFYUI_CUSTOM_NODES_AUTO_UPDATE="${COMFYUI_CUSTOM_NODES_AUTO_UPDATE:-0}"
 
 export PATH="${MAMBA_ROOT_PREFIX}/envs/pyenv/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}"
 export HF_HOME
+export COMFYUI_PORT
+export COMFYUI_LISTEN_HOST
+export COMFYUI_EXTRA_ARGS
+export COMFYUI_APP_BASE
 
 # ----------------------------------------
 # Helper functions
@@ -34,10 +44,8 @@ link_dir() {
   mkdir -p "$dst"
 
   if [ -L "$src" ]; then
-    return 0
-  fi
-
-  if [ -d "$src" ] && [ ! -L "$src" ]; then
+    rm -f "$src"
+  elif [ -d "$src" ] && [ ! -L "$src" ]; then
     if [ -n "$(ls -A "$src" 2>/dev/null || true)" ] && [ -z "$(ls -A "$dst" 2>/dev/null || true)" ]; then
       echo "Syncing existing contents: $src -> $dst"
       rsync -a "$src"/ "$dst"/ || true
@@ -74,51 +82,71 @@ clone_or_update_repo() {
 }
 
 # ----------------------------------------
-# Prepare persistent storage
+# Prepare persistent directories
 # ----------------------------------------
 echo
 echo "=== Preparing persistent directories ==="
 
-mkdir -p "${STORAGE_COMFYUI_DIR}/input" \
-         "${STORAGE_COMFYUI_DIR}/output" \
-         "${STORAGE_COMFYUI_DIR}/custom_nodes" \
-         "${STORAGE_COMFYUI_DIR}/user" \
-         "${JLAB_EXTENSIONS_DIR}" \
-         "${HF_HOME}" \
-         /workspace \
-         /workspace/data \
-         /workspace/notebooks
+mkdir -p \
+  "${STORAGE_COMFYUI_DIR}/input" \
+  "${STORAGE_COMFYUI_DIR}/output" \
+  "${STORAGE_COMFYUI_DIR}/custom_nodes" \
+  "${JLAB_EXTENSIONS_DIR}" \
+  "${HF_HOME}" \
+  /workspace \
+  /workspace/data \
+  /workspace/notebooks \
+  "${COMFYUI_MODELS_BASE}"
 
-chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_BASE}" /workspace || true
+chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_BASE}" /workspace /notebooks || true
 
-# models はストレージに逃がさない
-for d in input output custom_nodes user; do
-  link_dir "${COMFYUI_APP_BASE}/${d}" "${STORAGE_COMFYUI_DIR}/${d}"
-done
+# ----------------------------------------
+# Seed /notebooks/ComfyUI from template once
+# ----------------------------------------
+echo
+echo "=== Preparing runtime ComfyUI at /notebooks/ComfyUI ==="
+
+mkdir -p "${COMFYUI_APP_BASE}"
+
+if [ ! -f "${COMFYUI_APP_BASE}/main.py" ]; then
+  echo "Initial sync: ${COMFYUI_TEMPLATE_BASE} -> ${COMFYUI_APP_BASE}"
+  rsync -a \
+    --exclude models \
+    --exclude input \
+    --exclude output \
+    --exclude user \
+    "${COMFYUI_TEMPLATE_BASE}/" "${COMFYUI_APP_BASE}/"
+fi
+
+mkdir -p \
+  "${COMFYUI_APP_BASE}/user/default/workflows" \
+  "${COMFYUI_APP_BASE}/user/default"
+
+# ----------------------------------------
+# Link selected runtime dirs
+# ----------------------------------------
+echo
+echo "=== Linking runtime directories ==="
+
+link_dir "${COMFYUI_APP_BASE}/input"        "${STORAGE_COMFYUI_DIR}/input"
+link_dir "${COMFYUI_APP_BASE}/output"       "${STORAGE_COMFYUI_DIR}/output"
+link_dir "${COMFYUI_APP_BASE}/custom_nodes" "${STORAGE_COMFYUI_DIR}/custom_nodes"
+link_dir "${COMFYUI_APP_BASE}/models"       "${COMFYUI_MODELS_BASE}"
+
+# user は notebooks 側に残す
+mkdir -p "${COMFYUI_APP_BASE}/user/default/workflows"
+chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${COMFYUI_APP_BASE}/user" || true
 
 if [ -d /opt/app/jlab_extensions ]; then
   rsync -a /opt/app/jlab_extensions/ "${JLAB_EXTENSIONS_DIR}/" || true
 fi
 
 # ----------------------------------------
-# Create notebooks-visible structure
-# output is visible via /notebooks/ComfyUI/output
-# ----------------------------------------
-echo
-echo "=== Creating notebooks visible structure ==="
-
-ln -sfn /opt/app/ComfyUI /notebooks/ComfyUI
-ln -sfn "${COMFYUI_APP_BASE}/input" /notebooks/input
-ln -sfn "${COMFYUI_APP_BASE}/custom_nodes" /notebooks/custom_nodes
-
-# /notebooks/output は作らない
-rm -rf /notebooks/output 2>/dev/null || true
-
-# ----------------------------------------
 # Optional ComfyUI update
 # ----------------------------------------
 echo
 echo "=== Checking ComfyUI app update policy ==="
+
 if [ "$COMFYUI_AUTO_UPDATE" = "1" ]; then
   echo "[RUN] Updating ComfyUI"
   run_as_mambauser "cd '${COMFYUI_APP_BASE}' && git pull --ff-only" || true
@@ -151,7 +179,7 @@ for repo in "${CUSTOM_NODE_REPOS[@]}"; do
   clone_or_update_repo "$repo" "${COMFYUI_APP_BASE}/custom_nodes"
 done
 
-chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_COMFYUI_DIR}" || true
+chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" "${STORAGE_COMFYUI_DIR}" "${COMFYUI_APP_BASE}" || true
 
 # ----------------------------------------
 # Skip heavy startup tasks
@@ -176,8 +204,14 @@ supervisord -c /etc/supervisord.conf
 
 echo
 echo "=== Runtime info ==="
+echo "COMFYUI_TEMPLATE_BASE=${COMFYUI_TEMPLATE_BASE}"
 echo "COMFYUI_APP_BASE=${COMFYUI_APP_BASE}"
+echo "COMFYUI_MODELS_BASE=${COMFYUI_MODELS_BASE}"
+echo "COMFYUI_LISTEN_HOST=${COMFYUI_LISTEN_HOST}"
+echo "COMFYUI_PORT=${COMFYUI_PORT}"
+echo "COMFYUI_EXTRA_ARGS=${COMFYUI_EXTRA_ARGS}"
 echo "HF_HOME=${HF_HOME}"
+echo "Workflow dir=${COMFYUI_APP_BASE}/user/default/workflows"
 echo "Jupyter command: $*"
 
 # ----------------------------------------
