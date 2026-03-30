@@ -14,13 +14,16 @@ COMFYUI_TEMPLATE_BASE="${COMFYUI_TEMPLATE_BASE:-/opt/app/ComfyUI}"
 # 実行実体（notebooks 側）
 COMFYUI_APP_BASE="${COMFYUI_APP_BASE:-/notebooks/ComfyUI}"
 
+# 互換用 workspace 側
+COMFYUI_WORKSPACE_BASE="${COMFYUI_WORKSPACE_BASE:-/workspace/ComfyUI}"
+
 # 永続ストレージ
 STORAGE_BASE="${STORAGE_BASE:-/storage/sd-suite}"
 STORAGE_COMFYUI_DIR="${STORAGE_COMFYUI_DIR:-${STORAGE_BASE}/comfyui}"
 JLAB_EXTENSIONS_DIR="${JLAB_EXTENSIONS_DIR:-${STORAGE_BASE}/jlab_extensions}"
 HF_HOME="${HF_HOME:-${STORAGE_BASE}/hf_cache}"
 
-# models は opt 側に固定
+# models は必ず opt/app 側に固定
 COMFYUI_MODELS_BASE="${COMFYUI_MODELS_BASE:-/opt/app/ComfyUI/models}"
 
 COMFYUI_PORT="${COMFYUI_PORT:-8189}"
@@ -32,6 +35,8 @@ COMFYUI_CUSTOM_NODES_AUTO_UPDATE="${COMFYUI_CUSTOM_NODES_AUTO_UPDATE:-0}"
 export PATH="${MAMBA_ROOT_PREFIX}/envs/pyenv/bin:${MAMBA_ROOT_PREFIX}/bin:${PATH}"
 export HF_HOME
 export COMFYUI_APP_BASE
+export COMFYUI_TEMPLATE_BASE
+export COMFYUI_WORKSPACE_BASE
 export COMFYUI_MODELS_BASE
 export COMFYUI_PORT
 export COMFYUI_LISTEN_HOST
@@ -107,7 +112,7 @@ mkdir -p \
   /notebooks \
   "${COMFYUI_MODELS_BASE}"
 
-# models 以下を全部 opt 側に用意
+# models 以下は全部 opt/app 側に用意
 mkdir -p \
   "${COMFYUI_MODELS_BASE}/checkpoints" \
   "${COMFYUI_MODELS_BASE}/clip" \
@@ -137,14 +142,12 @@ chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" \
 echo
 echo "=== Preparing real runtime tree at /notebooks/ComfyUI ==="
 
-# 既存の /notebooks/ComfyUI が symlink なら消す
 if [ -L "${COMFYUI_APP_BASE}" ]; then
   rm -f "${COMFYUI_APP_BASE}"
 fi
 
 mkdir -p "${COMFYUI_APP_BASE}"
 
-# 初回だけ /opt/app/ComfyUI から本体をコピー
 if [ ! -f "${COMFYUI_APP_BASE}/main.py" ]; then
   echo "Initial sync: ${COMFYUI_TEMPLATE_BASE} -> ${COMFYUI_APP_BASE}"
   rsync -a \
@@ -156,10 +159,30 @@ if [ ! -f "${COMFYUI_APP_BASE}/main.py" ]; then
     "${COMFYUI_TEMPLATE_BASE}/" "${COMFYUI_APP_BASE}/"
 fi
 
-# notebooks 側に workflow 保存先を確保
 mkdir -p \
   "${COMFYUI_APP_BASE}/user/default/workflows" \
   "${COMFYUI_APP_BASE}/user/default"
+
+# ----------------------------------------
+# Prepare workspace compatibility tree
+# ----------------------------------------
+echo
+echo "=== Preparing workspace compatibility tree ==="
+
+mkdir -p "${COMFYUI_WORKSPACE_BASE}"
+
+if [ ! -f "${COMFYUI_WORKSPACE_BASE}/main.py" ]; then
+  echo "Initial sync: ${COMFYUI_APP_BASE} -> ${COMFYUI_WORKSPACE_BASE}"
+  rsync -a \
+    --exclude models \
+    --exclude input \
+    --exclude output \
+    --exclude custom_nodes \
+    --exclude user \
+    "${COMFYUI_APP_BASE}/" "${COMFYUI_WORKSPACE_BASE}/"
+fi
+
+mkdir -p "${COMFYUI_WORKSPACE_BASE}/user/default/workflows"
 
 # ----------------------------------------
 # Link runtime directories
@@ -167,21 +190,32 @@ mkdir -p \
 echo
 echo "=== Linking runtime directories ==="
 
-# notebooks 実体側から見せる
+# notebooks 側
 link_dir "${COMFYUI_APP_BASE}/input"        "${STORAGE_COMFYUI_DIR}/input"
 link_dir "${COMFYUI_APP_BASE}/output"       "${STORAGE_COMFYUI_DIR}/output"
 link_dir "${COMFYUI_APP_BASE}/custom_nodes" "${STORAGE_COMFYUI_DIR}/custom_nodes"
-
-# models 以下は全部 /opt/app/ComfyUI/models に保存
 link_dir "${COMFYUI_APP_BASE}/models"       "${COMFYUI_MODELS_BASE}"
 
-# user は notebooks 側に残す（workflow を notebooks に保存したいので）
+# opt/app 側
+link_dir "${COMFYUI_TEMPLATE_BASE}/input"        "${STORAGE_COMFYUI_DIR}/input"
+link_dir "${COMFYUI_TEMPLATE_BASE}/output"       "${STORAGE_COMFYUI_DIR}/output"
+link_dir "${COMFYUI_TEMPLATE_BASE}/custom_nodes" "${STORAGE_COMFYUI_DIR}/custom_nodes"
+# models は /opt/app/ComfyUI/models そのものなので触らない
+
+# workspace 側
+link_dir "${COMFYUI_WORKSPACE_BASE}/input"        "${STORAGE_COMFYUI_DIR}/input"
+link_dir "${COMFYUI_WORKSPACE_BASE}/output"       "${STORAGE_COMFYUI_DIR}/output"
+link_dir "${COMFYUI_WORKSPACE_BASE}/custom_nodes" "${STORAGE_COMFYUI_DIR}/custom_nodes"
+link_dir "${COMFYUI_WORKSPACE_BASE}/models"       "${COMFYUI_MODELS_BASE}"
+
+# user は notebooks / workspace 側に残す
 mkdir -p "${COMFYUI_APP_BASE}/user/default/workflows"
+mkdir -p "${COMFYUI_WORKSPACE_BASE}/user/default/workflows"
 
 # 補助リンク
 ln -sfn "${COMFYUI_APP_BASE}/input" /notebooks/input
 ln -sfn "${COMFYUI_APP_BASE}/custom_nodes" /notebooks/custom_nodes
-rm -rf /notebooks/output 2>/dev/null || true
+ln -sfn "${COMFYUI_APP_BASE}/output" /notebooks/output
 
 if [ -d /opt/app/jlab_extensions ]; then
   rsync -a /opt/app/jlab_extensions/ "${JLAB_EXTENSIONS_DIR}/" || true
@@ -201,6 +235,8 @@ else
 fi
 
 run_as_mambauser "git config --global --add safe.directory '${COMFYUI_APP_BASE}'" || true
+run_as_mambauser "git config --global --add safe.directory '${COMFYUI_WORKSPACE_BASE}'" || true
+run_as_mambauser "git config --global --add safe.directory '${COMFYUI_TEMPLATE_BASE}'" || true
 
 # ----------------------------------------
 # Ensure requested custom nodes exist
@@ -218,7 +254,11 @@ for repo in "${CUSTOM_NODE_REPOS[@]}"; do
 done
 
 chown -R "${MAMBA_USER:-mambauser}:${MAMBA_USER:-mambauser}" \
-  "${STORAGE_COMFYUI_DIR}" "${COMFYUI_APP_BASE}" "${COMFYUI_MODELS_BASE}" || true
+  "${STORAGE_COMFYUI_DIR}" \
+  "${COMFYUI_APP_BASE}" \
+  "${COMFYUI_WORKSPACE_BASE}" \
+  "${COMFYUI_TEMPLATE_BASE}" \
+  "${COMFYUI_MODELS_BASE}" || true
 
 # ----------------------------------------
 # Skip heavy startup tasks
@@ -245,10 +285,15 @@ echo
 echo "=== Runtime info ==="
 echo "COMFYUI_TEMPLATE_BASE=${COMFYUI_TEMPLATE_BASE}"
 echo "COMFYUI_APP_BASE=${COMFYUI_APP_BASE}"
+echo "COMFYUI_WORKSPACE_BASE=${COMFYUI_WORKSPACE_BASE}"
 echo "COMFYUI_MODELS_BASE=${COMFYUI_MODELS_BASE}"
 echo "HF_HOME=${HF_HOME}"
 echo "Workflow dir=${COMFYUI_APP_BASE}/user/default/workflows"
 echo "Checkpoints dir=${COMFYUI_MODELS_BASE}/checkpoints"
+echo "Models realpath=$(readlink -f "${COMFYUI_MODELS_BASE}" || true)"
+echo "Output (notebooks)=$(readlink -f "${COMFYUI_APP_BASE}/output" || true)"
+echo "Output (opt)=$(readlink -f "${COMFYUI_TEMPLATE_BASE}/output" || true)"
+echo "Output (workspace)=$(readlink -f "${COMFYUI_WORKSPACE_BASE}/output" || true)"
 echo "Jupyter command: $*"
 
 # ----------------------------------------
