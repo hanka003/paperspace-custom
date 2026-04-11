@@ -10,7 +10,6 @@ dependencies = [
 ]
 
 [project.entry-points."jupyter_serverproxy_servers"]
-# 各サーバーを個別に設定 - これらの名前がランチャーに表示される
 comfyui = "paperspace_stable_diffusion_suite:get_comfyui_config"
 
 [build-system]

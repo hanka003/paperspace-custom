@@ -1,0 +1,14 @@
+# 1行1件、形式:
+# repo_name:relative/path
+#
+# 例:
+# ComfyUI-Frame-Interpolation:models
+# SomeNode:models
+# SomeNode:weights
+# SomeNode:checkpoints
+# SomeNode:onnx
+# SomeNode:ckpts
+#
+# 追加したい custom node の重い保存先をここに追記すると、
+# 起動時に /opt/app/custom_node_models/<repo_name>/... へ逃がして、
+# custom_nodes 側には symlink を張ります。

@@ -1,10 +1,11 @@
 # -----------------------------------------------------------------------------
 # Image for Paperspace Notebook (GPU) running JupyterLab + ComfyUI
 # Customized for personal/private use on Paperspace
+# Patched to support redirecting heavy custom-node model directories to /opt
 # -----------------------------------------------------------------------------
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-LABEL maintainer="mochidroppot <mochidroppot@gmail.com>"
+LABEL maintainer="mochidroppot"
 
 # ------------------------------
 # Build-time and runtime settings
@@ -26,7 +27,10 @@ ENV MAMBA_USER=${MAMBA_USER} \
     HF_HOME=/storage/sd-suite/hf_cache \
     COMFYUI_AUTO_UPDATE=0 \
     COMFYUI_CUSTOM_NODES_AUTO_UPDATE=0 \
-    COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS=0
+    COMFYUI_CUSTOM_NODES_AUTO_INSTALL_DEPS=0 \
+    CUSTOM_NODE_MODELS_BASE=/opt/app/custom_node_models \
+    CUSTOM_NODE_HEAVY_CONFIG=/storage/sd-suite/config/custom_node_heavy_dirs.conf \
+    CUSTOM_NODE_HEAVY_DIRS=""
 
 # ------------------------------
 # Base packages
@@ -136,7 +140,8 @@ RUN set -eux; \
 RUN set -eux; \
     useradd -m -s /bin/bash ${MAMBA_USER}; \
     mkdir -p /workspace /workspace/data /workspace/notebooks; \
-    mkdir -p /storage/sd-suite/comfyui /storage/sd-suite/hf_cache; \
+    mkdir -p /storage/sd-suite/comfyui /storage/sd-suite/hf_cache /storage/sd-suite/config; \
+    mkdir -p /opt/app/custom_node_models; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /home/${MAMBA_USER}; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} ${MAMBA_ROOT_PREFIX}; \
     chown -R ${MAMBA_USER}:${MAMBA_USER} /opt/app; \
@@ -145,7 +150,6 @@ RUN set -eux; \
 
 USER ${MAMBA_USER}
 RUN git config --global --add safe.directory /opt/app/ComfyUI
-
 USER root
 
 # ------------------------------
@@ -158,11 +162,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
 # Entrypoint / runtime scripts
 # ------------------------------
 WORKDIR /notebooks
-
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY scripts/install_custom_node_deps.sh /usr/local/bin/install_custom_node_deps.sh
 COPY config/supervisord.conf /etc/supervisord.conf
-
+COPY config/custom_node_heavy_dirs.conf.example /opt/app/examples/custom_node_heavy_dirs.conf.example
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/install_custom_node_deps.sh && \
     chown ${MAMBA_USER}:${MAMBA_USER} /usr/local/bin/entrypoint.sh /usr/local/bin/install_custom_node_deps.sh
 
