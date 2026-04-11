@@ -1,11 +1,5 @@
 name: Update container
 
-on:
-  push:
-    branches: [ "main" ]
-  release:
-    types: [published] # Releaseを公開したときに動くようにする
-
 jobs:
   docker:
     runs-on: ubuntu-latest
