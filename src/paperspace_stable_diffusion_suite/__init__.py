@@ -32,6 +32,34 @@ def get_servers():
     }
 
 
-def get_comfyui_config():
+def get_IrodoriTTS_config():
     servers = get_servers()
-    return servers["comfyui"]
+    return servers["IrodoriTTS"]
+
+def _port_from_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+def get_servers():
+    return {
+        "IrodoriTTS": {
+            "timeout": 30,
+            "new_browser_tab": True,
+            "absolute_url": False,
+            "port": _port_from_env("IrodoriTTS_PORT", 8190),
+            "launcher_entry": {
+                "title": "IrodoriTTS",
+                "category": "Notebook",
+                "icon_path": _get_icon_path("IrodoriTTS"),
+                "enabled": True,
+            },
+        },
+    }
+
+
+def get_IrodoriTTS_config():
+    servers = get_servers()
+    return servers["IrodoriTTS"]

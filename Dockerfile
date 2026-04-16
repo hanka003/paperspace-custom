@@ -109,7 +109,7 @@ RUN set -eux; \
 # ------------------------------
 RUN set -eux; \
     export PIP_NO_CACHE_DIR=0; \
-    micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install --index-url https://download.pytorch.org/whl/cu124 torch torchvision torchaudio && \
+    micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install --index-url https://download.pytorch.org/whl/cu126 torch torchvision torchaudio && \
     micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install --prefer-binary --upgrade-strategy only-if-needed \
       jupyterlab==4.* notebook ipywidgets jupyterlab-git jupyter-server-proxy tensorboard \
       matplotlib pandas numpy scipy tqdm rich supervisor \
