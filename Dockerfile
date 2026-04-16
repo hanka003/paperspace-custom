@@ -182,6 +182,7 @@ RUN micromamba run -p ${MAMBA_ROOT_PREFIX}/envs/pyenv pip install /tmp/paperspac
 # ------------------------------
 EXPOSE 8888
 EXPOSE 8189
+EXPOSE 8190
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 

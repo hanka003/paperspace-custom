@@ -4,8 +4,7 @@ from pathlib import Path
 
 def _get_icon_path(icon_name: str) -> str:
     current_dir = Path(__file__).parent
-    icon_path = current_dir / "icons" / f"{icon_name}.svg"
-    return str(icon_path)
+    return str(current_dir / "icons" / f"{icon_name}.svg")
 
 
 def _port_from_env(name: str, default: int) -> int:
@@ -29,27 +28,11 @@ def get_servers():
                 "enabled": True,
             },
         },
-    }
-
-
-def get_IrodoriTTS_config():
-    servers = get_servers()
-    return servers["IrodoriTTS"]
-
-def _port_from_env(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, default))
-    except Exception:
-        return default
-
-
-def get_servers():
-    return {
-        "IrodoriTTS": {
+        "irodoritts": {
             "timeout": 30,
             "new_browser_tab": True,
             "absolute_url": False,
-            "port": _port_from_env("IrodoriTTS_PORT", 8190),
+            "port": _port_from_env("IRODORITTS_PORT", 8190),
             "launcher_entry": {
                 "title": "IrodoriTTS",
                 "category": "Notebook",
@@ -60,6 +43,14 @@ def get_servers():
     }
 
 
+def get_comfyui_config():
+    return get_servers()["comfyui"]
+
+
+def get_irodoritts_config():
+    return get_servers()["irodoritts"]
+
+
+# 互換用
 def get_IrodoriTTS_config():
-    servers = get_servers()
-    return servers["IrodoriTTS"]
+    return get_irodoritts_config()

@@ -1,16 +1,17 @@
 [project]
 name = "paperspace-stable-diffusion-suite"
 version = "0.1.0"
-description = "Jupyter server proxy launcher entries for ComfyUI and Filebrowser"
+description = "Jupyter server proxy launcher entries for ComfyUI and IrodoriTTS"
 authors = [{ name = "mochidroppot", email = "mochidroppot@gmail.com" }]
 readme = "LICENSE"
 requires-python = ">=3.8"
 dependencies = [
-    "jupyter-server-proxy>=4.1.0",
+  "jupyter-server-proxy>=4.1.0",
 ]
 
 [project.entry-points."jupyter_serverproxy_servers"]
 comfyui = "paperspace_stable_diffusion_suite:get_comfyui_config"
+irodoritts = "paperspace_stable_diffusion_suite:get_irodoritts_config"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
